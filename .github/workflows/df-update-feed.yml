@@ -1,0 +1,46 @@
+name: Uppdatera DataFramed-feed
+
+on:
+  schedule:
+    # Tisdag och fredag 06:00 UTC
+    - cron: "0 6 * * 2,5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: feed-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bygg feed
+        # Wayback-hämtningen körs bara första gången (wayback_done=True i cachen).
+        # Efterföljande körningar hämtar bara nya avsnitt från Captivate.
+        run: python df_feed.py build --chunk 100 --output df.xml --delay 1.0
+
+      - name: Bygg indexsida
+        run: |
+          python make_index.py \
+            --base-url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+
+      - name: Committa om något ändrats
+        run: |
+          git config user.name "feed-bot"
+          git config user.email "feed-bot@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "Inget nytt."
+          else
+            git commit -m "Uppdatera feed $(date -u +%Y-%m-%d)"
+            git push
+          fi
